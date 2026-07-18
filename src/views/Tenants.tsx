@@ -74,13 +74,38 @@ export default function Tenants() {
     mutationFn: async (tenantData: Partial<Tenant>) => {
       try {
         console.log('Attempting to save tenant data:', tenantData);
+        
+        // Remove all keys with undefined values to prevent Firestore errors
+        const cleanedData = Object.fromEntries(
+          Object.entries(tenantData).filter(([_, value]) => value !== undefined)
+        );
+        
         if (selectedTenant) {
-          await updateDoc(doc(db, 'tenants', selectedTenant.id), tenantData);
+          await updateDoc(doc(db, 'tenants', selectedTenant.id), cleanedData);
         } else {
-          await addDoc(collection(db, 'tenants'), { 
-            ...tenantData, 
+          const docRef = await addDoc(collection(db, 'tenants'), { 
+            ...cleanedData, 
             status: 'active',
-            joiningDate: tenantData.joiningDate || new Date().toISOString().split('T')[0]
+            joiningDate: cleanedData.joiningDate || new Date().toISOString().split('T')[0]
+          });
+
+          // Create initial payment record for the new tenant
+          const rentAmount = Number(cleanedData.monthlyRent) || 0;
+          const advanceAmount = Number(cleanedData.advanceAmount) || 0;
+          const balance = Math.max(0, rentAmount - advanceAmount);
+          const status = balance <= 0 ? 'Paid' : (advanceAmount > 0 ? 'Partial' : 'Due');
+
+          await addDoc(collection(db, 'payments'), {
+            tenantId: docRef.id,
+            tenantName: cleanedData.fullName,
+            dueDate: cleanedData.joiningDate || new Date().toISOString().split('T')[0],
+            rentAmount,
+            paidAmount: advanceAmount,
+            balance,
+            status,
+            paymentMode: advanceAmount > 0 ? 'Cash' : '',
+            transactionRef: '',
+            paymentDate: advanceAmount > 0 ? new Date().toISOString() : ''
           });
         }
       } catch (error: any) {
@@ -90,6 +115,7 @@ export default function Tenants() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tenants'] });
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
       setIsModalOpen(false);
       logActivity(selectedTenant ? 'UPDATE_TENANT' : 'CREATE_TENANT', `Tenant: ${selectedTenant?.fullName || 'New'}`);
       setSelectedTenant(null);
@@ -337,14 +363,17 @@ export default function Tenants() {
               const formData = new FormData(e.currentTarget);
               const data = Object.fromEntries(formData.entries());
               
-              // Ensure numeric values are converted correctly
+              // Ensure numeric values and fallbacks for optional fields are handled
               const formattedData = {
                 ...data,
-                monthlyRent: Number(data.monthlyRent),
+                whatsapp: data.whatsapp || data.mobile,
+                aadhaarNumber: data.aadhaarNumber || '',
+                bedNumber: data.bedNumber || '1',
+                monthlyRent: Number(data.monthlyRent) || 0,
                 securityDeposit: Number(data.securityDeposit) || 0,
                 advanceAmount: Number(data.advanceAmount) || 0,
-                photoUrl: tempPhotoUrl || undefined,
-                aadhaarUrl: tempAadhaarUrl || undefined,
+                photoUrl: tempPhotoUrl || null,
+                aadhaarUrl: tempAadhaarUrl || null,
                 status: data.status || 'active',
                 vacatedDate: data.status === 'vacated' ? (selectedTenant?.vacatedDate || new Date().toISOString().split('T')[0]) : null
               };
@@ -380,13 +409,13 @@ export default function Tenants() {
                       <input name="mobile" defaultValue={selectedTenant?.mobile} required className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm" />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">WhatsApp Number</label>
-                      <input name="whatsapp" defaultValue={selectedTenant?.whatsapp} required className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm" />
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">WhatsApp Number (Optional)</label>
+                      <input name="whatsapp" defaultValue={selectedTenant?.whatsapp} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm" />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Aadhaar Number</label>
-                    <input name="aadhaarNumber" defaultValue={selectedTenant?.aadhaarNumber} required className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm" />
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Aadhaar Number (Optional)</label>
+                    <input name="aadhaarNumber" defaultValue={selectedTenant?.aadhaarNumber} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm" />
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Permanent Address</label>
@@ -408,8 +437,8 @@ export default function Tenants() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Bed Number</label>
-                      <input name="bedNumber" defaultValue={selectedTenant?.bedNumber} required className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm" />
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Bed Number (Optional)</label>
+                      <input name="bedNumber" defaultValue={selectedTenant?.bedNumber} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm" placeholder="e.g. 1" />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
