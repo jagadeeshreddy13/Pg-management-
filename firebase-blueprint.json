@@ -1,0 +1,149 @@
+{
+  "collections": {
+    "admins": {
+      "description": "Store admin profile data",
+      "fields": {
+        "email": {
+          "type": "string",
+          "description": "Admin email address"
+        },
+        "role": {
+          "type": "string",
+          "description": "Admin role"
+        }
+      }
+    },
+    "rooms": {
+      "description": "Hostel rooms management",
+      "fields": {
+        "roomNumber": {
+          "type": "string"
+        },
+        "totalBeds": {
+          "type": "number"
+        },
+        "occupiedBeds": {
+          "type": "number"
+        }
+      }
+    },
+    "beds": {
+      "description": "Individual beds in rooms",
+      "fields": {
+        "roomId": {
+          "type": "string"
+        },
+        "roomNumber": {
+          "type": "string"
+        },
+        "bedNumber": {
+          "type": "string"
+        },
+        "isOccupied": {
+          "type": "boolean"
+        },
+        "currentTenantId": {
+          "type": "string"
+        }
+      }
+    },
+    "tenants": {
+      "description": "Tenant details",
+      "fields": {
+        "fullName": {
+          "type": "string"
+        },
+        "mobile": {
+          "type": "string"
+        },
+        "whatsapp": {
+          "type": "string"
+        },
+        "roomNumber": {
+          "type": "string"
+        },
+        "bedNumber": {
+          "type": "string"
+        },
+        "joiningDate": {
+          "type": "timestamp"
+        },
+        "monthlyRent": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "description": "active or vacated"
+        }
+      }
+    },
+    "payments": {
+      "description": "Rent payment history",
+      "fields": {
+        "tenantId": {
+          "type": "string"
+        },
+        "dueDate": {
+          "type": "timestamp"
+        },
+        "rentAmount": {
+          "type": "number"
+        },
+        "paidAmount": {
+          "type": "number"
+        },
+        "balance": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string"
+        }
+      }
+    },
+    "reminders": {
+      "description": "Log of WhatsApp reminders sent",
+      "fields": {
+        "tenantId": {
+          "type": "string"
+        },
+        "whatsappNumber": {
+          "type": "string"
+        },
+        "reminderType": {
+          "type": "string"
+        },
+        "sentTime": {
+          "type": "timestamp"
+        },
+        "status": {
+          "type": "string"
+        }
+      }
+    },
+    "settings": {
+      "description": "Hostel general settings",
+      "fields": {
+        "hostelName": {
+          "type": "string"
+        },
+        "upiId": {
+          "type": "string"
+        }
+      }
+    },
+    "activityLogs": {
+      "description": "Admin activity logs",
+      "fields": {
+        "adminId": {
+          "type": "string"
+        },
+        "action": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "timestamp"
+        }
+      }
+    }
+  }
+}
