@@ -26,6 +26,7 @@ import {
   Plus,
   X,
   MessageSquare,
+  ExternalLink,
   ChevronRight,
   Phone
 } from 'lucide-react';
@@ -317,6 +318,24 @@ export default function Payments() {
     }
   };
 
+  const generateWhatsAppLink = (payment: Payment) => {
+    const tenant = tenants.find(t => t.id === payment.tenantId);
+    if (!tenant || !settings) return '#';
+
+    const template = payment.status === 'Overdue' 
+      ? settings.reminderSettings.templates.overdue 
+      : settings.reminderSettings.templates.upcoming;
+    
+    const message = getFormattedMessage(template, tenant, payment);
+    const phone = tenant.whatsapp.replace(/\D/g, '');
+    
+    // Ensure phone has country code if not present (assuming Indian numbers if not specified, but best to keep what user entered)
+    // Most wa.me links work best with full international format without +
+    const cleanPhone = phone.length === 10 ? `91${phone}` : phone;
+    
+    return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+  };
+
   const filteredPayments = payments.filter(p => {
     const matchesSearch = p.tenantName.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'All' || p.status === statusFilter;
@@ -477,10 +496,39 @@ export default function Payments() {
                         <button 
                           onClick={() => sendWhatsAppReminder(payment)}
                           className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-md transition-all"
-                          title="WhatsApp Reminder"
+                          title="Auto WhatsApp Reminder"
                         >
                           <MessageSquare className="h-4 w-4" />
                         </button>
+                        <a 
+                          href={generateWhatsAppLink(payment)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-1.5 text-slate-400 hover:text-emerald-500 hover:bg-emerald-50 rounded-md transition-all"
+                          title="Send Manual WhatsApp Reminder"
+                          onClick={async () => {
+                            // Log the manual reminder too
+                            const tenant = tenants.find(t => t.id === payment.tenantId);
+                            if (tenant && settings) {
+                              const template = payment.status === 'Overdue' 
+                                ? settings.reminderSettings.templates.overdue 
+                                : settings.reminderSettings.templates.upcoming;
+                              const message = getFormattedMessage(template, tenant, payment);
+                              
+                              await addDoc(collection(db, 'reminders'), {
+                                tenantId: tenant.id,
+                                whatsappNumber: tenant.whatsapp,
+                                reminderType: 'manual_link',
+                                message,
+                                sentTime: new Date().toISOString(),
+                                method: 'whatsapp',
+                                status: 'sent'
+                              });
+                            }
+                          }}
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
                         <button 
                           onClick={() => sendSMSReminder(payment)}
                           className="p-1.5 text-slate-400 hover:text-blue-500 hover:bg-blue-50 rounded-md transition-all"

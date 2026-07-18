@@ -72,10 +72,20 @@ export default function Tenants() {
 
   const upsertMutation = useMutation({
     mutationFn: async (tenantData: Partial<Tenant>) => {
-      if (selectedTenant) {
-        await updateDoc(doc(db, 'tenants', selectedTenant.id), tenantData);
-      } else {
-        await addDoc(collection(db, 'tenants'), { ...tenantData, status: 'active' });
+      try {
+        console.log('Attempting to save tenant data:', tenantData);
+        if (selectedTenant) {
+          await updateDoc(doc(db, 'tenants', selectedTenant.id), tenantData);
+        } else {
+          await addDoc(collection(db, 'tenants'), { 
+            ...tenantData, 
+            status: 'active',
+            joiningDate: tenantData.joiningDate || new Date().toISOString().split('T')[0]
+          });
+        }
+      } catch (error: any) {
+        console.error('Error saving tenant:', error);
+        throw new Error(error.message || 'Failed to save tenant to database');
       }
     },
     onSuccess: () => {
@@ -84,6 +94,9 @@ export default function Tenants() {
       logActivity(selectedTenant ? 'UPDATE_TENANT' : 'CREATE_TENANT', `Tenant: ${selectedTenant?.fullName || 'New'}`);
       setSelectedTenant(null);
       toast.success(selectedTenant ? 'Tenant updated' : 'Tenant added');
+    },
+    onError: (error: any) => {
+      toast.error(error.message);
     }
   });
 
@@ -103,12 +116,39 @@ export default function Tenants() {
   const handleFileUpload = async (file: File, path: string) => {
     setIsUploading(true);
     try {
-      const storageRef = ref(storage, `tenants/${Date.now()}_${file.name}`);
-      await uploadBytes(storageRef, file);
-      const url = await getDownloadURL(storageRef);
-      return url;
-    } catch (error) {
-      toast.error('File upload failed');
+      const cloudName = (import.meta as any).env.VITE_CLOUDINARY_CLOUD_NAME;
+      const uploadPreset = (import.meta as any).env.VITE_CLOUDINARY_UPLOAD_PRESET;
+
+      if (!cloudName || !uploadPreset) {
+        // Fallback to Firebase Storage if Cloudinary is not configured
+        console.warn('Cloudinary not configured, falling back to Firebase Storage');
+        const storageRef = ref(storage, `tenants/${path}/${Date.now()}_${file.name}`);
+        await uploadBytes(storageRef, file);
+        return await getDownloadURL(storageRef);
+      }
+
+      console.log(`Uploading file to Cloudinary (${path})...`);
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('upload_preset', uploadPreset);
+      formData.append('folder', `tenants/${path}`);
+
+      const response = await fetch(
+        `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`,
+        { method: 'POST', body: formData }
+      );
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error?.message || 'Cloudinary upload failed');
+      }
+
+      const data = await response.json();
+      console.log('Cloudinary upload successful:', data.secure_url);
+      return data.secure_url;
+    } catch (error: any) {
+      console.error('File upload error:', error);
+      toast.error(`File upload failed: ${error.message || 'Unknown error'}`);
       return null;
     } finally {
       setIsUploading(false);
@@ -215,7 +255,12 @@ export default function Tenants() {
                           )}
                         </div>
                         <div>
-                          <p className="font-semibold text-slate-900">{tenant.fullName}</p>
+                          <div className="flex items-center">
+                            <p className="font-semibold text-slate-900">{tenant.fullName}</p>
+                            {tenant.adminNotes && (
+                              <div className="ml-2 w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-sm" title="Has internal notes" />
+                            )}
+                          </div>
                           <p className="text-[10px] text-slate-400 font-medium">Rent: ₹{tenant.monthlyRent}</p>
                         </div>
                       </div>
@@ -291,16 +336,40 @@ export default function Tenants() {
               e.preventDefault();
               const formData = new FormData(e.currentTarget);
               const data = Object.fromEntries(formData.entries());
-              upsertMutation.mutate({
+              
+              // Ensure numeric values are converted correctly
+              const formattedData = {
                 ...data,
+                monthlyRent: Number(data.monthlyRent),
+                securityDeposit: Number(data.securityDeposit) || 0,
+                advanceAmount: Number(data.advanceAmount) || 0,
                 photoUrl: tempPhotoUrl || undefined,
-                aadhaarUrl: tempAadhaarUrl || undefined
-              } as any);
+                aadhaarUrl: tempAadhaarUrl || undefined,
+                status: data.status || 'active',
+                vacatedDate: data.status === 'vacated' ? (selectedTenant?.vacatedDate || new Date().toISOString().split('T')[0]) : null
+              };
+
+              upsertMutation.mutate(formattedData as any);
             }}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {/* Personal Information */}
                 <div className="space-y-4">
-                  <h4 className="font-bold text-slate-800 text-sm border-b border-slate-100 pb-2">Personal Information</h4>
+                  <div className="flex justify-between items-center border-b border-slate-100 pb-2">
+                    <h4 className="font-bold text-slate-800 text-sm">Personal Information</h4>
+                    {selectedTenant && (
+                      <div className="flex items-center space-x-2">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Status:</label>
+                        <select 
+                          name="status" 
+                          defaultValue={selectedTenant.status}
+                          className="text-[10px] font-bold uppercase py-0.5 px-2 rounded-full border border-slate-200 bg-white outline-none focus:ring-1 focus:ring-blue-500"
+                        >
+                          <option value="active">Active</option>
+                          <option value="vacated">Vacated</option>
+                        </select>
+                      </div>
+                    )}
+                  </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Full Name</label>
                     <input name="fullName" defaultValue={selectedTenant?.fullName} required className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm" />
@@ -362,6 +431,16 @@ export default function Tenants() {
                       <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Advance Amount</label>
                       <input type="number" name="advanceAmount" defaultValue={selectedTenant?.advanceAmount} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm" />
                     </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Internal Admin Notes</label>
+                    <textarea 
+                      name="adminNotes" 
+                      defaultValue={selectedTenant?.adminNotes} 
+                      rows={2} 
+                      placeholder="Confidential notes for staff only..."
+                      className="w-full px-4 py-2 bg-slate-50 border border-emerald-100 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none transition-all resize-none text-sm italic" 
+                    />
                   </div>
                 </div>
               </div>

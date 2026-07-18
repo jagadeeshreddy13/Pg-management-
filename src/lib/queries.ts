@@ -12,7 +12,7 @@ import { Room, Tenant, Payment } from '../types';
 
 export const getDashboardStats = async () => {
   const roomsSnap = await getDocs(collection(db, 'rooms'));
-  const tenantsSnap = await getDocs(query(collection(db, 'tenants'), where('status', '==', 'active')));
+  const allTenantsSnap = await getDocs(collection(db, 'tenants'));
   
   const now = new Date();
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -20,7 +20,8 @@ export const getDashboardStats = async () => {
   const paymentsSnap = await getDocs(collection(db, 'payments'));
   
   const rooms = roomsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Room));
-  const activeTenants = tenantsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Tenant));
+  const allTenants = allTenantsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Tenant));
+  const activeTenants = allTenants.filter(t => t.status === 'active');
   const allPayments = paymentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Payment));
 
   const totalRooms = rooms.length;
@@ -37,6 +38,33 @@ export const getDashboardStats = async () => {
     return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
   }).reduce((acc, p) => acc + p.paidAmount, 0);
 
+  // Calculate trends for the last 6 months
+  const months = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push({
+      name: d.toLocaleString('default', { month: 'short' }),
+      monthIndex: d.getMonth(),
+      year: d.getFullYear(),
+      occupancy: 0
+    });
+  }
+
+  months.forEach(month => {
+    const monthStart = new Date(month.year, month.monthIndex, 1);
+    const monthEnd = new Date(month.year, month.monthIndex + 1, 0);
+
+    const count = allTenants.filter(t => {
+      const joining = new Date(t.joiningDate);
+      const vacated = t.vacatedDate ? new Date(t.vacatedDate) : null;
+      
+      // Tenant was active if joined before end of month AND (not vacated OR vacated after start of month)
+      return joining <= monthEnd && (!vacated || vacated >= monthStart);
+    }).length;
+    
+    month.occupancy = count;
+  });
+
   return {
     totalRooms,
     totalBeds,
@@ -46,6 +74,7 @@ export const getDashboardStats = async () => {
     totalOverdue,
     monthlyCollection,
     recentPayments: allPayments.sort((a, b) => (b.paymentDate || '').localeCompare(a.paymentDate || '')).slice(0, 5),
-    recentTenants: activeTenants.sort((a, b) => b.joiningDate.localeCompare(a.joiningDate)).slice(0, 5)
+    recentTenants: activeTenants.sort((a, b) => b.joiningDate.localeCompare(a.joiningDate)).slice(0, 5),
+    occupancyTrend: months.map(({ name, occupancy }) => ({ name, occupancy }))
   };
 };

@@ -32,8 +32,10 @@ export type Tenant = {
   advanceAmount: number;
   notes: string;
   status: 'active' | 'vacated';
+  vacatedDate?: string; // ISO Date
   photoUrl?: string;
   aadhaarUrl?: string;
+  adminNotes?: string;
 };
 
 export type PaymentStatus = 'Paid' | 'Partial' | 'Due' | 'Overdue';
